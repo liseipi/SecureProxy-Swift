@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var manager = ProxyManager()
+    @EnvironmentObject var manager: ProxyManager
     @State private var showingConfigEditor = false
     @State private var editingConfig: ProxyConfig? = nil
     @State private var showingLogs = false
