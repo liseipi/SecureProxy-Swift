@@ -278,10 +278,52 @@ class ProxyManager: ObservableObject {
         process?.arguments = [scriptPath]
         process?.currentDirectoryURL = pythonDirectory
         
-        // 设置环境变量传递配置路径
+        // 继承并扩展环境变量（不要清空任何变量！）
         var environment = ProcessInfo.processInfo.environment
+        
+        // 设置配置文件路径
         environment["SECURE_PROXY_CONFIG"] = tempConfigPath
+        
+        // 确保 Python 路径正确
+        if let home = environment["HOME"] {
+            let pyenvRoot = "\(home)/.pyenv"
+            let currentPath = environment["PATH"] ?? ""
+            
+            // 添加 pyenv 路径到 PATH
+            var pathComponents = [
+                "\(pyenvRoot)/shims",
+                "\(pyenvRoot)/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin"
+            ]
+            
+            // 保留现有路径中不重复的部分
+            for component in currentPath.split(separator: ":") {
+                let path = String(component)
+                if !pathComponents.contains(path) {
+                    pathComponents.append(path)
+                }
+            }
+            
+            environment["PATH"] = pathComponents.joined(separator: ":")
+            environment["PYENV_ROOT"] = pyenvRoot
+        }
+        
+        // 设置 Python 缓冲模式为无缓冲，确保实时输出
+        environment["PYTHONUNBUFFERED"] = "1"
+        
+        // ⚠️ 不要清空 SSL 变量！保持系统默认值
+        // 注释掉这两行：
+        // environment["SSL_CERT_FILE"] = ""
+        // environment["REQUESTS_CA_BUNDLE"] = ""
+        
         process?.environment = environment
+        
+        // 日志输出环境信息
+        addLog("🐍 Python: \(pythonPath)")
+        addLog("📂 工作目录: \(pythonDirectory.path)")
+        addLog("📄 配置: \(config.name)")
         
         let pipe = Pipe()
         let errorPipe = Pipe()
@@ -310,10 +352,12 @@ class ProxyManager: ObservableObject {
             try process?.run()
             isRunning = true
             status = .connected
-            addLog("代理已启动 - SOCKS5:\(config.socksPort) HTTP:\(config.httpPort)")
+            addLog("✅ 代理进程已启动")
+            addLog("📡 SOCKS5: 127.0.0.1:\(config.socksPort)")
+            addLog("📡 HTTP: 127.0.0.1:\(config.httpPort)")
         } catch {
             status = .error(error.localizedDescription)
-            addLog("启动失败: \(error.localizedDescription)")
+            addLog("❌ 启动失败: \(error.localizedDescription)")
         }
     }
     
@@ -374,9 +418,14 @@ class ProxyManager: ObservableObject {
     private func addLog(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         logs.append("[\(timestamp)] \(message)")
-        if logs.count > 100 {
+        if logs.count > 500 {  // 增加到 500 条
             logs.removeFirst()
         }
+    }
+    
+    func clearLogs() {
+        logs.removeAll()
+        addLog("日志已清除")
     }
     
     deinit {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LogsView: View {
     let logs: [String]
+    let onClear: () -> Void
     @Environment(\.dismiss) var dismiss
     @State private var autoScroll = true
     
@@ -10,26 +11,32 @@ struct LogsView: View {
             // 标题栏
             HStack {
                 Text("运行日志")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.headline)
                 
                 Spacer()
                 
                 Toggle("自动滚动", isOn: $autoScroll)
                     .toggleStyle(.switch)
+                    .controlSize(.small)
                 
-                Button("清除") {
-                    // 这里需要通过回调来清除日志
+                Button(action: {
+                    onClear()
+                }) {
+                    Label("清除", systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(logs.isEmpty)
                 
                 Button("关闭") {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.vertical, 10)
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()
@@ -37,18 +44,18 @@ struct LogsView: View {
             // 日志内容
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 1) {
                         if logs.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "doc.text")
-                                    .font(.system(size: 48))
+                                    .font(.system(size: 36))
                                     .foregroundColor(.secondary)
                                 Text("暂无日志")
-                                    .font(.headline)
+                                    .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 100)
+                            .padding(.top, 60)
                         } else {
                             ForEach(Array(logs.enumerated()), id: \.offset) { index, log in
                                 LogRow(index: index, log: log)
@@ -56,10 +63,11 @@ struct LogsView: View {
                             }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
                 .background(Color(NSColor.textBackgroundColor))
-                .onChange(of: logs.count) { _ in
+                .onChange(of: logs.count) { oldValue, newValue in
                     if autoScroll, let lastIndex = logs.indices.last {
                         withAnimation {
                             proxy.scrollTo(lastIndex, anchor: .bottom)
@@ -75,21 +83,21 @@ struct LogsView: View {
             
             // 底部状态栏
             HStack {
-                Text("共 \(logs.count) 条日志")
-                    .font(.caption)
+                Text("共 \(logs.count) 条")
+                    .font(.caption2)
                     .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                Text("提示: 可以选择文本进行复制")
-                    .font(.caption)
+                Text("可选择文本复制")
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .frame(minWidth: 700, minHeight: 450)
     }
 }
 
@@ -98,32 +106,33 @@ struct LogRow: View {
     let log: String
     
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 6) {
             // 行号
             Text("\(index + 1)")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.secondary)
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: 30, alignment: .trailing)
             
             // 日志内容
             Text(log)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .textSelection(.enabled)
                 .foregroundColor(logColor(for: log))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(nil)
         }
-        .padding(.vertical, 2)
-        .background(index % 2 == 0 ? Color.clear : Color.gray.opacity(0.05))
+        .padding(.vertical, 1)
+        .background(index % 2 == 0 ? Color.clear : Color.gray.opacity(0.03))
     }
     
     private func logColor(for log: String) -> Color {
-        if log.contains("✅") || log.contains("成功") {
+        if log.contains("✅") || log.contains("成功") || log.contains("连接成功") {
             return .green
         } else if log.contains("❌") || log.contains("错误") || log.contains("失败") {
             return .red
         } else if log.contains("⚠️") || log.contains("警告") {
             return .orange
-        } else if log.contains("📋") || log.contains("📁") || log.contains("📄") {
+        } else if log.contains("🔗") || log.contains("连接") || log.contains("启动") {
             return .blue
         } else {
             return Color(NSColor.labelColor)

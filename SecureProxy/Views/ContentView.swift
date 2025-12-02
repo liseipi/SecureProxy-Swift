@@ -65,7 +65,9 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $showingLogs) {
-            LogsView(logs: manager.logs)
+            LogsView(logs: manager.logs, onClear: {
+                manager.clearLogs()
+            })
         }
         .frame(minWidth: 600, minHeight: 500)
     }
