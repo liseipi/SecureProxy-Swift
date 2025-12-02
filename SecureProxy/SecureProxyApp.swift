@@ -6,13 +6,14 @@ struct SecureProxyApp: App {
     @StateObject private var manager = ProxyManager()
     
     var body: some Scene {
-        // 主窗口（可选）
-        WindowGroup {
+        // 主窗口 - 使用 Window 而不是 WindowGroup
+        Window("SecureProxy", id: "main") {
             ContentView()
                 .environmentObject(manager)
                 .frame(minWidth: 600, minHeight: 500)
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("关于 SecureProxy") {
@@ -32,7 +33,7 @@ struct SecureProxyApp: App {
         
         // 菜单栏图标
         MenuBarExtra {
-            MenuBarView()
+            MenuBarView(appDelegate: appDelegate)
                 .environmentObject(manager)
         } label: {
             MenuBarLabel(isRunning: manager.isRunning, status: manager.status)
@@ -42,14 +43,61 @@ struct SecureProxyApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 隐藏 Dock 图标（可选，如果只想要菜单栏图标）
-        // NSApp.setActivationPolicy(.accessory)
+        // 隐藏 Dock 图标（只显示菜单栏图标）
+        NSApp.setActivationPolicy(.accessory)
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // 关闭窗口不退出应用
         return false
     }
+    
+    func showMainWindow() {
+        // 查找主窗口（排除菜单栏弹出窗口）
+        let mainWindow = NSApp.windows.first { window in
+            window.contentViewController != nil &&
+            !window.styleMask.contains(.nonactivatingPanel) &&
+            window.title == "SecureProxy"
+        }
+        
+        if let window = mainWindow {
+            // 如果窗口已存在，直接显示
+            if !window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+            }
+            
+            // 临时设为浮动窗口以确保显示在最前面
+            window.level = .floating
+            window.orderFrontRegardless()
+            
+            // 0.5秒后恢复正常层级
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                window.level = .normal
+            }
+        } else {
+            // 如果窗口不存在（首次打开），等待创建后再显示
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let window = NSApp.windows.first(where: {
+                    $0.contentViewController != nil &&
+                    !$0.styleMask.contains(.nonactivatingPanel) &&
+                    $0.title == "SecureProxy"
+                }) {
+                    window.level = .floating
+                    window.makeKeyAndOrderFront(nil)
+                    window.orderFrontRegardless()
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        window.level = .normal
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 通知名称
+extension Notification.Name {
+    static let openMainWindow = Notification.Name("openMainWindow")
 }
 
 // ===================================
@@ -93,8 +141,8 @@ struct MenuBarLabel: View {
 // 菜单栏视图
 // ===================================
 struct MenuBarView: View {
+    let appDelegate: AppDelegate
     @EnvironmentObject var manager: ProxyManager
-    @State private var showingMainWindow = false
     @State private var showingLogs = false
     @Environment(\.openWindow) var openWindow
     
@@ -175,7 +223,8 @@ struct MenuBarView: View {
             
             // 功能按钮
             Button(action: {
-                openMainWindow()
+                appDelegate.showMainWindow()
+                openWindow(id: "main")
             }) {
                 Label("打开主窗口", systemImage: "macwindow")
             }
@@ -209,18 +258,6 @@ struct MenuBarView: View {
             LogsView(logs: manager.logs, onClear: {
                 manager.clearLogs()
             })
-        }
-    }
-    
-    private func openMainWindow() {
-        // 激活应用
-        NSApp.activate(ignoringOtherApps: true)
-        
-        // 打开或显示主窗口
-        if let window = NSApp.windows.first(where: { $0.isVisible && $0.title.isEmpty || $0.title.contains("SecureProxy") }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            openWindow(id: "main")
         }
     }
 }
