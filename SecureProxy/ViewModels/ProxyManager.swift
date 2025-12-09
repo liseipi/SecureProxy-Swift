@@ -25,14 +25,11 @@ class ProxyManager: ObservableObject {
         self.configDirectory = baseDir.appendingPathComponent("config")
         self.pythonDirectory = baseDir.appendingPathComponent("python")
         
-        // 初始化 pythonPath（先设置默认值）
         self.pythonPath = "/usr/bin/python3"
         
-        // 创建目录
         try? fm.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try? fm.createDirectory(at: pythonDirectory, withIntermediateDirectories: true)
         
-        // 现在可以调用实例方法了
         self.pythonPath = findPython()
         
         copyPythonScripts()
@@ -41,7 +38,6 @@ class ProxyManager: ObservableObject {
     }
     
     private func findPython() -> String {
-        // 优先级顺序
         let paths = [
             shell("which python3"),
             "\(NSHomeDirectory())/.pyenv/shims/python3",
@@ -227,20 +223,35 @@ class ProxyManager: ObservableObject {
         status = .connecting
         addLog("🚀 启动代理...")
         
-        // 启动前先清理
         addLog("🧹 清理残留进程...")
         killAllClientProcesses()
         releasePort(config.socksPort)
         releasePort(config.httpPort)
         
-        // 延迟启动，确保端口完全释放
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.startProxyProcess(config: config)
         }
     }
     
     private func startProxyProcess(config: ProxyConfig) {
-        let tempConfigPath = createTempConfig(config: config)
+        // 🎯 关键修改：通过环境变量传递配置 JSON
+        let configDict: [String: Any] = [
+            "name": config.name,
+            "sni_host": config.sniHost,
+            "path": config.path,
+            "server_port": config.serverPort,
+            "socks_port": config.socksPort,
+            "http_port": config.httpPort,
+            "pre_shared_key": config.preSharedKey
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: configDict, options: []),
+              let configJson = String(data: jsonData, encoding: .utf8) else {
+            addLog("❌ 配置序列化失败")
+            status = .error("配置序列化失败")
+            return
+        }
+        
         let scriptPath = pythonDirectory.appendingPathComponent("client.py").path
         
         process = Process()
@@ -249,7 +260,9 @@ class ProxyManager: ObservableObject {
         process?.currentDirectoryURL = pythonDirectory
         
         var environment = ProcessInfo.processInfo.environment
-        environment["SECURE_PROXY_CONFIG"] = tempConfigPath
+        
+        // 🎯 关键：设置配置到环境变量
+        environment["SECURE_PROXY_CONFIG"] = configJson
         
         if let home = environment["HOME"] {
             let pyenvRoot = "\(home)/.pyenv"
@@ -280,6 +293,7 @@ class ProxyManager: ObservableObject {
         addLog("🐍 Python: \(pythonPath)")
         addLog("📂 工作目录: \(pythonDirectory.path)")
         addLog("📄 配置: \(config.name)")
+        addLog("🔧 通过环境变量传递配置")
         
         let pipe = Pipe()
         let errorPipe = Pipe()
@@ -317,34 +331,9 @@ class ProxyManager: ObservableObject {
         }
     }
     
-    private func createTempConfig(config: ProxyConfig) -> String {
-        let configDir = pythonDirectory.appendingPathComponent("config")
-        try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        
-        let configPath = configDir.appendingPathComponent("active_config.json")
-        
-        let configDict: [String: Any] = [
-            "name": config.name,
-            "sni_host": config.sniHost,
-            "path": config.path,
-            "server_port": config.serverPort,
-            "socks_port": config.socksPort,
-            "http_port": config.httpPort,
-            "pre_shared_key": config.preSharedKey
-        ]
-        
-        if let jsonData = try? JSONSerialization.data(withJSONObject: configDict, options: .prettyPrinted) {
-            try? jsonData.write(to: configPath)
-            addLog("✅ 配置文件已创建: \(configPath.lastPathComponent)")
-        }
-        
-        return configPath.path
-    }
-    
     func stop() {
         addLog("🛑 停止代理...")
         
-        // 1. 终止当前进程
         if let process = process {
             process.terminate()
             
@@ -352,28 +341,21 @@ class ProxyManager: ObservableObject {
                 process.waitUntilExit()
             }
             
-            // 强制杀死
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                // 👇 将此行修改为直接 if 检查
-                let pid = process.processIdentifier // processIdentifier 是 Int32，不是 Optional
+                let pid = process.processIdentifier
                 if pid > 0 {
-                    // 由于 processIdentifier 是 Int32 类型，kill 函数需要 pid_t (也是 Int32)
                     kill(pid, SIGKILL)
-                    // 您也可以写成：kill(process.processIdentifier, SIGKILL)
                 }
             }
         }
         
-        // 2. 清理所有相关进程
         killAllClientProcesses()
         
-        // 3. 释放端口
         if let config = activeConfig {
             releasePort(config.socksPort)
             releasePort(config.httpPort)
         }
         
-        // 4. 重置状态
         process = nil
         isRunning = false
         status = .disconnected
@@ -451,7 +433,7 @@ class ProxyManager: ObservableObject {
     private func parseOutput(_ output: String) {
         addLog(output)
         
-        if output.contains("连接成功") || output.contains("监听") {
+        if output.contains("隧道建立成功") || output.contains("监听") || output.contains("✅ SOCKS5") {
             status = .connected
         } else if output.contains("错误") || output.contains("失败") {
             status = .error(output)
