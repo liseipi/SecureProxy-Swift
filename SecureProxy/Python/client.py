@@ -6,7 +6,6 @@ import sys
 import hmac
 import socket
 import struct
-import websockets
 import ssl
 import time
 from pathlib import Path
@@ -14,13 +13,31 @@ from pathlib import Path
 # 核心模块导入
 from crypto import derive_keys, encrypt, decrypt
 
-# ==================== Cloudflare CDN 优化配置 ====================
-# WebSocket 连接优化（针对 CF CDN）
-WS_CONNECT_TIMEOUT = 15        # CDN 需要更长超时
-WS_HANDSHAKE_TIMEOUT = 10      # 握手超时增加
-WS_MAX_SIZE = 10 * 1024 * 1024
+# ==================== 清除环境变量 ====================
+def clear_system_proxy():
+    """清除代理环境变量"""
+    proxy_vars = [
+        'HTTP_PROXY', 'HTTPS_PROXY', 'FTP_PROXY', 'SOCKS_PROXY',
+        'http_proxy', 'https_proxy', 'ftp_proxy', 'socks_proxy',
+        'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy'
+    ]
 
-# 缓冲区配置
+    cleared = []
+    for var in proxy_vars:
+        if var in os.environ:
+            cleared.append(f"{var}={os.environ[var]}")
+            del os.environ[var]
+
+    if cleared:
+        print("🛡️  已清除系统代理环境变量:")
+        for item in cleared:
+            print(f"   - {item}")
+        print()
+
+clear_system_proxy()
+
+# ==================== 配置 ====================
+WS_HANDSHAKE_TIMEOUT = 10
 READ_BUFFER_SIZE = 65536
 WRITE_BUFFER_SIZE = 8192
 
@@ -104,50 +121,205 @@ async def traffic_monitor():
             traffic_up = traffic_down = 0
             last_traffic_time = now
 
-# ==================== SSL 上下文优化 ====================
+# ==================== 核心：原始 Socket WebSocket 实现（绕过所有代理）====================
+class RawWebSocket:
+    """
+    使用原始 socket 实现的 WebSocket 客户端
+    完全绕过系统代理、环境变量、任何中间层
+    """
+
+    def __init__(self):
+        self.sock = None
+        self.ssl_sock = None
+        self.reader = None
+        self.writer = None
+        self.closed = False
+
+    async def connect(self, host, port, path, ssl_context):
+        """直连到服务器"""
+        loop = asyncio.get_event_loop()
+
+        # 1. DNS 解析（使用系统 DNS，但可以直接指定 IP 绕过）
+        try:
+            addr_info = await loop.getaddrinfo(
+                host, port,
+                family=socket.AF_INET,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP
+            )
+            if not addr_info:
+                raise Exception("DNS 解析失败")
+
+            family, socktype, proto, canonname, sockaddr = addr_info[0]
+        except Exception as e:
+            raise Exception(f"DNS 解析失败: {e}")
+
+        # 2. 创建原始 socket（关键：绕过所有代理层）
+        self.sock = socket.socket(family, socktype, proto)
+        self.sock.setblocking(False)
+
+        # 设置 TCP 参数
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+        # 3. 直接连接（不经过任何代理）
+        try:
+            await asyncio.wait_for(
+                loop.sock_connect(self.sock, sockaddr),
+                timeout=10
+            )
+        except Exception as e:
+            self.sock.close()
+            raise Exception(f"TCP 连接失败: {e}")
+
+        # 4. 添加 TLS 层
+        try:
+            self.reader, self.writer = await asyncio.open_connection(
+                sock=self.sock,
+                ssl=ssl_context,
+                server_hostname=host
+            )
+        except Exception as e:
+            self.sock.close()
+            raise Exception(f"TLS 握手失败: {e}")
+
+        # 5. WebSocket 握手
+        try:
+            await self._handshake(host, port, path)
+        except Exception as e:
+            await self.close()
+            raise Exception(f"WebSocket 握手失败: {e}")
+
+    async def _handshake(self, host, port, path):
+        """WebSocket 握手"""
+        import base64
+        import hashlib
+
+        # 生成 Sec-WebSocket-Key
+        key = base64.b64encode(os.urandom(16)).decode()
+
+        # 构建握手请求
+        request = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"User-Agent: Mozilla/5.0\r\n"
+            f"\r\n"
+        )
+
+        self.writer.write(request.encode())
+        await self.writer.drain()
+
+        # 读取响应
+        response_line = await self.reader.readline()
+        if b'101' not in response_line:
+            raise Exception(f"握手失败: {response_line}")
+
+        # 读取所有 headers
+        while True:
+            line = await self.reader.readline()
+            if line in (b'\r\n', b'\n', b''):
+                break
+
+    async def send(self, data):
+        """发送 WebSocket 帧"""
+        if self.closed:
+            raise Exception("WebSocket 已关闭")
+
+        # 构建 WebSocket 数据帧
+        frame = bytearray()
+
+        # FIN=1, opcode=0x2 (binary)
+        frame.append(0x82)
+
+        # Mask=1, payload length
+        length = len(data)
+        if length < 126:
+            frame.append(0x80 | length)
+        elif length < 65536:
+            frame.append(0x80 | 126)
+            frame.extend(length.to_bytes(2, 'big'))
+        else:
+            frame.append(0x80 | 127)
+            frame.extend(length.to_bytes(8, 'big'))
+
+        # Masking key
+        mask = os.urandom(4)
+        frame.extend(mask)
+
+        # Masked payload
+        masked = bytearray(data)
+        for i in range(len(masked)):
+            masked[i] ^= mask[i % 4]
+        frame.extend(masked)
+
+        self.writer.write(bytes(frame))
+        await self.writer.drain()
+
+    async def recv(self):
+        """接收 WebSocket 帧"""
+        if self.closed:
+            raise Exception("WebSocket 已关闭")
+
+        # 读取帧头
+        header = await self.reader.readexactly(2)
+
+        # 解析 payload length
+        length = header[1] & 0x7F
+        if length == 126:
+            length_bytes = await self.reader.readexactly(2)
+            length = int.from_bytes(length_bytes, 'big')
+        elif length == 127:
+            length_bytes = await self.reader.readexactly(8)
+            length = int.from_bytes(length_bytes, 'big')
+
+        # 读取 payload
+        payload = await self.reader.readexactly(length)
+        return payload
+
+    async def close(self):
+        """关闭连接"""
+        if self.closed:
+            return
+
+        self.closed = True
+
+        if self.writer:
+            try:
+                self.writer.close()
+                await self.writer.wait_closed()
+            except:
+                pass
+
+        if self.sock:
+            try:
+                self.sock.close()
+            except:
+                pass
+
+# ==================== SSL 上下文 ====================
 def get_ssl_context():
-    """获取优化的 SSL 上下文（缓存复用）"""
-    global _ssl_context_cache
-
-    if _ssl_context_cache is not None:
-        return _ssl_context_cache
-
+    """创建 SSL 上下文"""
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-
-    # Cloudflare CDN 优化
-    ssl_context.options |= ssl.OP_NO_COMPRESSION
-
-    # 支持 TLS 1.2 和 1.3（Cloudflare 兼容性）
     ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-
-    # 使用 Cloudflare 支持的加密套件
-    ssl_context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:!aNULL:!MD5:!DSS')
-
-    # ALPN 协议协商（Cloudflare 需要）
-    try:
-        ssl_context.set_alpn_protocols(['http/1.1'])
-    except:
-        pass
-
-    _ssl_context_cache = ssl_context
+    ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
     return ssl_context
 
-# ==================== 优化的独立连接处理 ====================
+# ==================== 创建安全连接 ====================
 async def create_secure_connection(target):
-    """
-    为单个请求创建独立的加密连接
+    """使用原始 socket 创建连接（完全绕过系统代理）"""
 
-    优势：
-    1. 完全并行化，无锁竞争
-    2. 故障隔离，单个连接失败不影响其他
-    3. 简化生命周期管理
-    4. 更好的负载均衡
-    """
+    # 防止循环
+    if target.startswith('127.0.0.1:1080') or target.startswith('127.0.0.1:1081'):
+        raise Exception(f"拒绝连接: 检测到代理循环 (目标={target})")
+
     ws = None
-    max_retries = 2
-    retry_delay = 1
+    max_retries = 3
 
     for attempt in range(max_retries):
         try:
@@ -155,38 +327,17 @@ async def create_secure_connection(target):
             path = str(current_config["path"])
             port = int(current_config.get("server_port", 443))
 
-            url = f"wss://{host}:{port}{path}"
-
-            # Cloudflare CDN 友好的连接参数
-            ws = await asyncio.wait_for(
-                websockets.connect(
-                    url,
-                    ssl=get_ssl_context(),
-                    server_hostname=host,
-                    max_size=WS_MAX_SIZE,
-                    ping_interval=30,           # CDN环境建议启用ping
-                    ping_timeout=20,            # ping超时
-                    compression=None,           # 禁用压缩（避免CDN干扰）
-                    open_timeout=WS_CONNECT_TIMEOUT,
-                    close_timeout=3,
-                    max_queue=32,
-                    write_limit=65536,
-                    # Cloudflare 友好的 headers
-                    additional_headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Origin': f'https://{host}',
-                    }
-                ),
-                timeout=WS_CONNECT_TIMEOUT + 5
+            # 使用原始 socket WebSocket
+            ws = RawWebSocket()
+            await asyncio.wait_for(
+                ws.connect(host, port, path, get_ssl_context()),
+                timeout=15
             )
 
-            # ========== 密钥交换 ==========
+            # 密钥交换
             client_pub = os.urandom(32)
             await ws.send(client_pub)
-            server_pub = await asyncio.wait_for(
-                ws.recv(),
-                timeout=WS_HANDSHAKE_TIMEOUT
-            )
+            server_pub = await asyncio.wait_for(ws.recv(), timeout=10)
 
             if len(server_pub) != 32:
                 raise Exception(f"服务器公钥长度错误: {len(server_pub)}")
@@ -199,10 +350,7 @@ async def create_secure_connection(target):
             # ========== 认证 ==========
             auth_digest = hmac.new(send_key, b"auth", digestmod='sha256').digest()
             await ws.send(auth_digest)
-            auth_response = await asyncio.wait_for(
-                ws.recv(),
-                timeout=WS_HANDSHAKE_TIMEOUT
-            )
+            auth_response = await asyncio.wait_for(ws.recv(), timeout=10)
             expected = hmac.new(recv_key, b"ok", digestmod='sha256').digest()
 
             if not hmac.compare_digest(auth_response, expected):
@@ -211,10 +359,7 @@ async def create_secure_connection(target):
             # ========== 发送 CONNECT ==========
             connect_cmd = f"CONNECT {target}".encode('utf-8')
             await ws.send(encrypt(send_key, connect_cmd))
-            response = await asyncio.wait_for(
-                ws.recv(),
-                timeout=WS_HANDSHAKE_TIMEOUT
-            )
+            response = await asyncio.wait_for(ws.recv(), timeout=10)
             plaintext = decrypt(recv_key, response)
 
             if plaintext != b"OK":
@@ -222,42 +367,22 @@ async def create_secure_connection(target):
 
             return ws, send_key, recv_key
 
-        except asyncio.TimeoutError as e:
-            if ws:
-                try:
-                    await ws.close()
-                except:
-                    pass
-
-            if attempt < max_retries - 1:
-                # 不打印警告，避免日志污染
-                await asyncio.sleep(retry_delay)
-                retry_delay *= 2  # 指数退避
-                continue
-            else:
-                raise Exception("连接超时（CDN可能限流）")
-
         except Exception as e:
             if ws:
-                try:
-                    await ws.close()
-                except:
-                    pass
+                await ws.close()
 
-            # 如果是最后一次尝试，抛出异常
             if attempt == max_retries - 1:
                 raise e
 
-            # 否则等待后重试
-            await asyncio.sleep(retry_delay)
-            retry_delay *= 2
+            await asyncio.sleep(1)
 
 # ==================== 高效数据转发 ====================
 async def ws_to_socket(ws, recv_key, writer):
-    """WebSocket -> Socket（优化版）"""
+    """WebSocket -> Socket"""
     global traffic_down
     try:
-        async for enc_data in ws:
+        while not ws.closed:
+            enc_data = await ws.recv()
             if writer.is_closing():
                 break
 
@@ -265,17 +390,9 @@ async def ws_to_socket(ws, recv_key, writer):
             plaintext = decrypt(recv_key, enc_data)
 
             writer.write(plaintext)
-
             if writer.transport.get_write_buffer_size() > WRITE_BUFFER_SIZE:
-                try:
-                    await writer.drain()
-                except (ConnectionResetError, BrokenPipeError, OSError):
-                    break
-    except (ConnectionResetError, BrokenPipeError, OSError):
-        pass
-    except asyncio.CancelledError:
-        pass
-    except Exception:
+                await writer.drain()
+    except:
         pass
     finally:
         if not writer.is_closing():
@@ -286,36 +403,22 @@ async def ws_to_socket(ws, recv_key, writer):
                 pass
 
 async def socket_to_ws(reader, ws, send_key):
-    """Socket -> WebSocket（优化版）"""
+    """Socket -> WebSocket"""
     global traffic_up
     try:
-        while True:
+        while not ws.closed:
             data = await reader.read(READ_BUFFER_SIZE)
             if not data:
                 break
 
             traffic_up += len(data)
             encrypted = encrypt(send_key, data)
-
-            if ws.close_code is not None:
-                break
-
-            try:
-                await ws.send(encrypted)
-            except (websockets.exceptions.ConnectionClosed, OSError):
-                break
-    except (ConnectionResetError, BrokenPipeError, OSError):
-        pass
-    except asyncio.CancelledError:
-        pass
-    except Exception:
+            await ws.send(encrypted)
+    except:
         pass
     finally:
-        if ws.close_code is None:
-            try:
-                await ws.close()
-            except:
-                pass
+        if not ws.closed:
+            await ws.close()
 
 # ==================== SOCKS5 处理 ====================
 async def handle_socks5(reader, writer):
@@ -324,17 +427,6 @@ async def handle_socks5(reader, writer):
 
     async with connection_semaphore:
         active_connections += 1
-
-        sock = writer.get_extra_info('socket')
-        if sock:
-            if TCP_NODELAY:
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            if TCP_KEEPALIVE:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                if hasattr(socket, 'TCP_KEEPIDLE'):
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, TCP_KEEPIDLE)
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, TCP_KEEPINTVL)
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, TCP_KEEPCNT)
 
         ws = None
         try:
@@ -374,23 +466,13 @@ async def handle_socks5(reader, writer):
                 return_exceptions=True
             )
 
-        except asyncio.TimeoutError:
-            pass
         except Exception as e:
-            if not isinstance(e, (
-                ConnectionResetError,
-                BrokenPipeError,
-                OSError,
-                websockets.exceptions.ConnectionClosed
-            )):
+            if not isinstance(e, (ConnectionResetError, BrokenPipeError, OSError, asyncio.TimeoutError)):
                 print(f"❌ SOCKS5: {type(e).__name__}: {str(e)}")
         finally:
             active_connections -= 1
             if ws:
-                try:
-                    await ws.close()
-                except:
-                    pass
+                await ws.close()
             try:
                 writer.close()
             except:
@@ -398,22 +480,11 @@ async def handle_socks5(reader, writer):
 
 # ==================== HTTP 处理 ====================
 async def handle_http(reader, writer):
-    """处理 HTTP CONNECT（独立连接模式）"""
+    """处理 HTTP CONNECT"""
     global active_connections
 
     async with connection_semaphore:
         active_connections += 1
-
-        sock = writer.get_extra_info('socket')
-        if sock:
-            if TCP_NODELAY:
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            if TCP_KEEPALIVE:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                if hasattr(socket, 'TCP_KEEPIDLE'):
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, TCP_KEEPIDLE)
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, TCP_KEEPINTVL)
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, TCP_KEEPCNT)
 
         ws = None
         try:
@@ -452,23 +523,13 @@ async def handle_http(reader, writer):
                 return_exceptions=True
             )
 
-        except asyncio.TimeoutError:
-            pass
         except Exception as e:
-            if not isinstance(e, (
-                ConnectionResetError,
-                BrokenPipeError,
-                OSError,
-                websockets.exceptions.ConnectionClosed
-            )):
+            if not isinstance(e, (ConnectionResetError, BrokenPipeError, OSError, asyncio.TimeoutError)):
                 print(f"❌ HTTP: {type(e).__name__}: {str(e)}")
         finally:
             active_connections -= 1
             if ws:
-                try:
-                    await ws.close()
-                except:
-                    pass
+                await ws.close()
             try:
                 writer.close()
             except:
@@ -483,41 +544,36 @@ async def start_servers():
         print("❌ 无有效配置")
         return
 
-    try:
-        socks_port = int(current_config["socks_port"])
-        http_port = int(current_config["http_port"])
+    socks_port = int(current_config["socks_port"])
+    http_port = int(current_config["http_port"])
 
-        connection_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONNECTIONS)
+    connection_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONNECTIONS)
 
-        socks_server = await asyncio.start_server(
-            handle_socks5, "127.0.0.1", socks_port, backlog=256
+    socks_server = await asyncio.start_server(
+        handle_socks5, "127.0.0.1", socks_port, backlog=256
+    )
+    http_server = await asyncio.start_server(
+        handle_http, "127.0.0.1", http_port, backlog=256
+    )
+
+    print("=" * 70)
+    print(f"🚀 SecureProxy 客户端 (真·直连模式)")
+    print(f"✅ SOCKS5: 127.0.0.1:{socks_port}")
+    print(f"✅ HTTP:   127.0.0.1:{http_port}")
+    print(f"🔐 加密:   AES-256-GCM")
+    print(f"🛡️  核心:   原始 Socket 实现，完全绕过系统代理")
+    print(f"⚡ 特性:")
+    print(f"   • 底层实现:     不依赖任何高层网络库")
+    print(f"   • 代理绕过:     100% 直连到服务器")
+    print(f"   • 循环检测:     自动拒绝指向自身的连接")
+    print(f"   • 并发限制:     {MAX_CONCURRENT_CONNECTIONS} 连接")
+    print("=" * 70)
+
+    async with socks_server, http_server:
+        await asyncio.gather(
+            socks_server.serve_forever(),
+            http_server.serve_forever()
         )
-        http_server = await asyncio.start_server(
-            handle_http, "127.0.0.1", http_port, backlog=256
-        )
-
-        print("=" * 70)
-        print(f"🚀 SecureProxy 客户端 (Cloudflare CDN 优化版)")
-        print(f"✅ SOCKS5: 127.0.0.1:{socks_port}")
-        print(f"✅ HTTP:   127.0.0.1:{http_port}")
-        print(f"🔐 加密:   AES-256-GCM + Perfect Forward Secrecy")
-        print(f"☁️  CDN:    Cloudflare 友好模式")
-        print(f"⚡ 优化:")
-        print(f"   • 连接超时:     {WS_CONNECT_TIMEOUT}秒（CDN适配）")
-        print(f"   • 心跳机制:     30秒（保持CDN连接）")
-        print(f"   • 重试机制:     2次指数退避")
-        print(f"   • 并发限制:     {MAX_CONCURRENT_CONNECTIONS} 连接")
-        print("=" * 70)
-
-        async with socks_server, http_server:
-            await asyncio.gather(
-                socks_server.serve_forever(),
-                http_server.serve_forever()
-            )
-
-    except OSError as e:
-        print(f"❌ 端口占用: {e}")
-        sys.exit(1)
 
 # ==================== 主函数 ====================
 async def main():
