@@ -132,8 +132,6 @@ struct MenuBarLabel: View {
             return .orange
         case .disconnected:
             return .gray
-        case .error:
-            return .red
         }
     }
 }

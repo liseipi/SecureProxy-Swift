@@ -248,7 +248,8 @@ class ProxyManager: ObservableObject {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: configDict, options: []),
               let configJson = String(data: jsonData, encoding: .utf8) else {
             addLog("❌ 配置序列化失败")
-            status = .error  // 不再传递错误消息
+            // 🔥 错误只记录日志，不改变UI状态
+            status = .disconnected
             return
         }
         
@@ -313,7 +314,7 @@ class ProxyManager: ObservableObject {
             let data = handle.availableData
             if let output = String(data: data, encoding: .utf8), !output.isEmpty {
                 DispatchQueue.main.async {
-                    // 只记录到日志，不改变状态
+                    // 🔥 错误只记录到日志，不影响UI状态
                     self?.addLog("❌ 错误: \(output)")
                 }
             }
@@ -327,9 +328,9 @@ class ProxyManager: ObservableObject {
             addLog("📡 SOCKS5: 127.0.0.1:\(config.socksPort)")
             addLog("📡 HTTP: 127.0.0.1:\(config.httpPort)")
         } catch {
-            // 错误只记录到日志
-            status = .error  // 不传递详细错误信息
+            // 🔥 启动失败只记录日志，状态回到未连接
             addLog("❌ 启动失败: \(error.localizedDescription)")
+            status = .disconnected
         }
     }
     
@@ -433,16 +434,17 @@ class ProxyManager: ObservableObject {
     }
     
     private func parseOutput(_ output: String) {
-        // 所有输出都记录到日志
+        // 🔥 所有输出都只记录到日志
         addLog(output)
         
-        // 根据关键词更新状态，但不显示错误详情
-        if output.contains("隧道建立成功") || output.contains("监听") || output.contains("✅ SOCKS5") {
+        // 🔥 只有明确的成功标志才改变状态为已连接
+        // 错误、失败等信息不改变UI状态
+        if output.contains("隧道建立成功") ||
+           output.contains("✅ SOCKS5") ||
+           output.contains("✅ HTTP") {
             status = .connected
-        } else if output.contains("❌") || output.contains("错误") || output.contains("失败") {
-            // 只改变状态为错误，不显示具体信息
-            status = .error
         }
+        // 🔥 移除错误状态的设置，让状态保持为 connecting 或已有状态
     }
     
     private func startTrafficMonitor() {
