@@ -215,7 +215,7 @@ class ProxyManager: ObservableObject {
     
     func start() {
         guard let config = activeConfig else {
-            addLog("错误: 没有选中的配置")
+            addLog("❌ 错误: 没有选中的配置")
             return
         }
         guard !isRunning else { return }
@@ -234,7 +234,7 @@ class ProxyManager: ObservableObject {
     }
     
     private func startProxyProcess(config: ProxyConfig) {
-        // 🎯 关键修改：通过环境变量传递配置 JSON
+        // 通过环境变量传递配置 JSON
         let configDict: [String: Any] = [
             "name": config.name,
             "sni_host": config.sniHost,
@@ -248,7 +248,7 @@ class ProxyManager: ObservableObject {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: configDict, options: []),
               let configJson = String(data: jsonData, encoding: .utf8) else {
             addLog("❌ 配置序列化失败")
-            status = .error("配置序列化失败")
+            status = .error  // 不再传递错误消息
             return
         }
         
@@ -261,7 +261,7 @@ class ProxyManager: ObservableObject {
         
         var environment = ProcessInfo.processInfo.environment
         
-        // 🎯 关键：设置配置到环境变量
+        // 设置配置到环境变量
         environment["SECURE_PROXY_CONFIG"] = configJson
         
         if let home = environment["HOME"] {
@@ -313,7 +313,8 @@ class ProxyManager: ObservableObject {
             let data = handle.availableData
             if let output = String(data: data, encoding: .utf8), !output.isEmpty {
                 DispatchQueue.main.async {
-                    self?.addLog("错误: \(output)")
+                    // 只记录到日志，不改变状态
+                    self?.addLog("❌ 错误: \(output)")
                 }
             }
         }
@@ -326,7 +327,8 @@ class ProxyManager: ObservableObject {
             addLog("📡 SOCKS5: 127.0.0.1:\(config.socksPort)")
             addLog("📡 HTTP: 127.0.0.1:\(config.httpPort)")
         } catch {
-            status = .error(error.localizedDescription)
+            // 错误只记录到日志
+            status = .error  // 不传递详细错误信息
             addLog("❌ 启动失败: \(error.localizedDescription)")
         }
     }
@@ -431,12 +433,15 @@ class ProxyManager: ObservableObject {
     }
     
     private func parseOutput(_ output: String) {
+        // 所有输出都记录到日志
         addLog(output)
         
+        // 根据关键词更新状态，但不显示错误详情
         if output.contains("隧道建立成功") || output.contains("监听") || output.contains("✅ SOCKS5") {
             status = .connected
-        } else if output.contains("错误") || output.contains("失败") {
-            status = .error(output)
+        } else if output.contains("❌") || output.contains("错误") || output.contains("失败") {
+            // 只改变状态为错误，不显示具体信息
+            status = .error
         }
     }
     

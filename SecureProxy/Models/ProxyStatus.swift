@@ -4,7 +4,7 @@ enum ProxyStatus: Equatable {
     case disconnected
     case connecting
     case connected
-    case error(String)
+    case error  // 移除关联值，不再显示错误详情
     
     var color: Color {
         switch self {
@@ -29,7 +29,7 @@ enum ProxyStatus: Equatable {
         case .disconnected: return "未连接"
         case .connecting: return "连接中..."
         case .connected: return "已连接"
-        case .error(let msg): return "错误: \(msg)"
+        case .error: return "连接失败"  // 简化错误信息
         }
     }
 }
