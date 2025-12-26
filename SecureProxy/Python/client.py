@@ -1,4 +1,4 @@
-# client.py - 激进优化版（完全防堵塞）
+# client_video_optimized.py - 视频流优化版（解决音视频不同步）
 import asyncio
 import json
 import os
@@ -37,24 +37,29 @@ def clear_system_proxy():
 
 clear_system_proxy()
 
-# ==================== 🔥 激进配置 ====================
-READ_BUFFER_SIZE = 256 * 1024
-WRITE_BUFFER_SIZE = 128 * 1024
+# ==================== 🎬 视频流优化配置 ====================
+# 🎬 关键：视频流需要更大的缓冲区和更快的传输
+READ_BUFFER_SIZE =  6 * 1024 * 1024  # 🔥 6M
+WRITE_BUFFER_SIZE = 640 * 1024  # 🔥 640KB
 
 MAX_CONCURRENT_CONNECTIONS = 200
 
-# 🔥🔥🔥 关键：极短超时，快速失败
-MAX_RETRIES = 1  # 只重试1次
-RETRY_DELAY = 0.1  # 100毫秒
-CONNECTION_TIMEOUT = 5  # 总超时5秒
-CONNECT_TIMEOUT = 3  # 连接超时3秒
-HANDSHAKE_TIMEOUT = 2  # 握手超时2秒
-RECV_TIMEOUT = 10  # 接收超时10秒
-SEND_TIMEOUT = 5  # 发送超时5秒
+# 🎬 超时配置（针对视频流优化）
+MAX_RETRIES = 1
+RETRY_DELAY = 0.1
+CONNECTION_TIMEOUT = 5
+CONNECT_TIMEOUT = 3
+HANDSHAKE_TIMEOUT = 2
+RECV_TIMEOUT = 15  # 🔥 从10秒增加到15秒（视频流可能有更大的包）
+SEND_TIMEOUT = 10  # 🔥 从5秒增加到10秒
 
-# 🔥 健康检查
-HEALTH_CHECK_INTERVAL = 5  # 5秒检查一次
-FAILURE_THRESHOLD = 10  # 连续失败10次进入降级模式
+# 🎬 智能drain策略（避免缓冲区过载）
+DRAIN_THRESHOLD = 0.7  # 🔥 从0.8降到0.7（更积极地drain，保持流畅）
+DRAIN_TIMEOUT = 1.0  # drain操作的超时时间
+
+# 健康检查
+HEALTH_CHECK_INTERVAL = 5
+FAILURE_THRESHOLD = 10
 health_failures = 0
 degraded_mode = False
 
@@ -76,9 +81,14 @@ success_connections = 0
 timeout_connections = 0
 connection_semaphore = None
 
-# 🔥 请求队列（防止过载）
-request_queue = None
-MAX_QUEUE_SIZE = 500
+# ==================== 🎬 视频流统计 ====================
+video_stream_stats = {
+    "total_bytes": 0,
+    "avg_speed": 0,
+    "peak_speed": 0,
+    "buffer_overflows": 0,
+    "drain_operations": 0
+}
 
 # ==================== 从环境变量加载配置 ====================
 def load_config_from_env():
@@ -121,7 +131,7 @@ def load_config_from_env():
 async def traffic_monitor():
     global traffic_up, traffic_down, last_traffic_time, active_connections
     global failed_connections, success_connections, timeout_connections
-    global health_failures, degraded_mode
+    global health_failures, degraded_mode, video_stream_stats
 
     while True:
         await asyncio.sleep(5)
@@ -132,17 +142,23 @@ async def traffic_monitor():
             up_speed = traffic_up / elapsed / 1024
             down_speed = traffic_down / elapsed / 1024
 
-            # 🔥 计算成功率
+            # 🎬 更新视频流统计
+            video_stream_stats["total_bytes"] += traffic_down
+            video_stream_stats["avg_speed"] = (video_stream_stats["avg_speed"] * 0.8 + down_speed * 0.2)
+            if down_speed > video_stream_stats["peak_speed"]:
+                video_stream_stats["peak_speed"] = down_speed
+
             total = success_connections + failed_connections
             success_rate = (success_connections / total * 100) if total > 0 else 0
 
-            # 🔥 健康状态
             status = "🟢" if not degraded_mode else "🔴"
 
-            print(f"{status} 📊 ↑{up_speed:6.1f}KB/s ↓{down_speed:6.1f}KB/s | "
+            # 🎬 增强显示：包含视频流统计
+            print(f"{status} 📊 ↑{up_speed:6.1f}KB/s ↓{down_speed:6.1f}KB/s (峰值:{video_stream_stats['peak_speed']:.0f}KB/s) | "
                   f"连接:{active_connections}/{MAX_CONCURRENT_CONNECTIONS} | "
-                  f"成功率:{success_rate:.0f}% ({success_connections}/{total}) | "
-                  f"超时:{timeout_connections}")
+                  f"成功率:{success_rate:.0f}% | "
+                  f"缓冲区溢出:{video_stream_stats['buffer_overflows']} | "
+                  f"drain操作:{video_stream_stats['drain_operations']}")
 
             traffic_up = traffic_down = 0
             last_traffic_time = now
@@ -171,15 +187,19 @@ async def health_checker():
                     degraded_mode = False
                     print(f"\n🟢 恢复正常模式")
 
-# ==================== 🔥 极速 WebSocket ====================
-class RawWebSocket:
-    """极速WebSocket（最小超时）"""
+# ==================== 🎬 视频流优化的 WebSocket ====================
+class VideoOptimizedWebSocket:
+    """视频流优化的WebSocket（减少延迟，保持同步）"""
 
     def __init__(self):
         self.reader = None
         self.writer = None
         self.closed = False
         self.last_activity = time.time()
+        # 🎬 发送队列（批量发送小包）
+        self.send_queue = []
+        self.send_queue_size = 0
+        self.send_lock = asyncio.Lock()
 
     async def connect(self, host, port, path, ssl_context):
         """快速连接（严格超时控制）"""
@@ -199,10 +219,14 @@ class RawWebSocket:
             sock = self.writer.get_extra_info('socket')
             if sock:
                 try:
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    # 🎬 关键优化：TCP参数调整
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # 禁用Nagle算法
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
-                                  struct.pack('ii', 1, 0))
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+
+                    # 🎬 增加缓冲区大小
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, READ_BUFFER_SIZE)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, WRITE_BUFFER_SIZE)
                 except:
                     pass
 
@@ -353,9 +377,7 @@ async def create_secure_connection(target):
             path = str(current_config["path"])
             port = int(current_config.get("server_port", 443))
 
-            ws = RawWebSocket()
-
-            # 🔥 连接阶段（3秒超时）
+            ws = VideoOptimizedWebSocket()
             await ws.connect(host, port, path, get_ssl_context())
 
             # 🔥 密钥交换（2秒超时）
@@ -415,19 +437,13 @@ async def create_secure_connection(target):
 
     # 🔥 失败
     failed_connections += 1
-
-    # 🔥 静默处理常见错误
-    error_msg = str(last_error)
-    if not any(x in error_msg for x in ["gaierror", "nodename", "Name or service", "超时"]):
-        # 只打印非常见错误
-        pass
-
     raise last_error
 
-# ==================== 数据转发（优化版）====================
+# ==================== 🎬 视频流优化的数据转发 ====================
 async def ws_to_socket(ws, recv_key, writer):
-    """WebSocket -> Socket"""
-    global traffic_down
+    """WebSocket -> Socket（视频流优化版）"""
+    global traffic_down, video_stream_stats
+
     try:
         while not ws.closed:
             # 🔥 接收超时10秒
@@ -441,8 +457,14 @@ async def ws_to_socket(ws, recv_key, writer):
 
             # 智能drain
             buffer_size = writer.transport.get_write_buffer_size()
-            if buffer_size > WRITE_BUFFER_SIZE * 0.8:
-                await asyncio.wait_for(writer.drain(), timeout=2)
+            if buffer_size > WRITE_BUFFER_SIZE * DRAIN_THRESHOLD:
+                try:
+                    await asyncio.wait_for(writer.drain(), timeout=DRAIN_TIMEOUT)
+                    video_stream_stats["drain_operations"] += 1
+                except asyncio.TimeoutError:
+                    video_stream_stats["buffer_overflows"] += 1
+                    # drain超时，但继续处理（避免完全阻塞）
+                    pass
 
     except asyncio.TimeoutError:
         pass
@@ -458,17 +480,20 @@ async def ws_to_socket(ws, recv_key, writer):
                 pass
 
 async def socket_to_ws(reader, ws, send_key):
-    """Socket -> WebSocket"""
+    """Socket -> WebSocket（视频流优化版）"""
     global traffic_up
+
     try:
         while not ws.closed:
-            # 🔥 读取超时10秒
+            # 🎬 读取数据（使用更大的缓冲区）
             data = await asyncio.wait_for(reader.read(READ_BUFFER_SIZE), timeout=RECV_TIMEOUT)
             if not data:
                 break
 
             traffic_up += len(data)
             encrypted = encrypt(send_key, data)
+
+            # 🎬 直接发送，不等待（提高吞吐量）
             await ws.send(encrypted)
 
     except asyncio.TimeoutError:
@@ -542,7 +567,7 @@ async def handle_socks5(reader, writer):
                         socket_to_ws(reader, ws, send_key),
                         return_exceptions=True
                     ),
-                    timeout=60  # 数据传输60秒后自动断开
+                    timeout=300  # 🔥 从60秒增加到300秒（5分钟）
                 )
             except asyncio.TimeoutError:
                 pass
@@ -553,13 +578,13 @@ async def handle_socks5(reader, writer):
             active_connections -= 1
             if ws:
                 try:
-                    await asyncio.wait_for(ws.close(), timeout=1)
+                    await asyncio.wait_for(ws.close(), timeout=0.5)
                 except:
                     pass
             if not writer.is_closing():
                 try:
                     writer.close()
-                    await asyncio.wait_for(writer.wait_closed(), timeout=1)
+                    await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
                 except:
                     pass
 
@@ -616,7 +641,7 @@ async def handle_http(reader, writer):
                         socket_to_ws(reader, ws, send_key),
                         return_exceptions=True
                     ),
-                    timeout=60
+                    timeout=300  # 🔥 5分钟
                 )
             except asyncio.TimeoutError:
                 pass
@@ -659,19 +684,19 @@ async def start_servers():
     )
 
     print("=" * 70)
-    print(f"🚀 SecureProxy 客户端 (激进优化版 - 完全防堵塞)")
+    print(f"🎬 SecureProxy 客户端 (视频流优化版)")
     print(f"✅ SOCKS5: 127.0.0.1:{socks_port}")
     print(f"✅ HTTP:   127.0.0.1:{http_port}")
     print(f"🔐 加密:   AES-256-GCM")
-    print(f"⚡ 激进优化:")
-    print(f"   • 🔥🔥 连接超时:    {CONNECT_TIMEOUT}秒（极速）")
-    print(f"   • 🔥🔥 握手超时:    {HANDSHAKE_TIMEOUT}秒（极速）")
-    print(f"   • 🔥🔥 总超时:      {CONNECTION_TIMEOUT}秒（快速失败）")
-    print(f"   • 🔥🔥 重试策略:    只重试{MAX_RETRIES}次，延迟{RETRY_DELAY}s")
-    print(f"   • 🔥🔥 健康检查:    自动降级保护")
-    print(f"   • 📊   成功率监控:  实时显示")
-    print(f"   • 并发限制:        {MAX_CONCURRENT_CONNECTIONS} 连接")
-    print(f"💡 核心理念: 一个请求失败<5秒，绝不影响其他请求")
+    print(f"🎬 视频流优化:")
+    print(f"   • 🔥 缓冲区大小:    {READ_BUFFER_SIZE//1024}KB读 / {WRITE_BUFFER_SIZE//1024}KB写（增大）")
+    print(f"   • 🔥 TCP_NODELAY:   已启用（禁用Nagle算法，减少延迟）")
+    print(f"   • 🔥 智能drain:     缓冲区>{int(DRAIN_THRESHOLD*100)}%时刷新")
+    print(f"   • 🔥 Drain超时:     {DRAIN_TIMEOUT}秒（避免阻塞）")
+    print(f"   • 🔥 接收超时:      {RECV_TIMEOUT}秒（适应大包）")
+    print(f"   • 🔥 会话超时:      300秒（长视频支持）")
+    print(f"   • 📊 实时监控:      包含视频流统计")
+    print(f"💡 针对YouTube等视频网站优化，减少音视频不同步")
     print("=" * 70)
 
     async with socks_server, http_server:
