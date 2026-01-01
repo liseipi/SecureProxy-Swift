@@ -130,7 +130,7 @@ def load_config() -> Config:
         sys.exit(1)
 
 # 加载配置文件二选一，默认 load_config()
-#config = load_config()
+# config = load_config()
 
 def load_config_from_env() -> Config:
     """从环境变量读取配置"""
@@ -178,7 +178,7 @@ def load_config_from_env() -> Config:
 # 加载配置文件二选一，load_config_from_env()在xCode中开启，请保留
 config = load_config_from_env()
 
-# ==================== 统计信息 ====================
+# ==================== 统计信息（改进版）====================
 class Stats:
     def __init__(self):
         self.active_connections = 0
@@ -187,6 +187,7 @@ class Stats:
         self.total_bytes_recv = 0
         self.errors = 0
         self.lock = asyncio.Lock()
+        self.last_reset_time = time.time()
 
     async def connection_start(self):
         async with self.lock:
@@ -215,6 +216,16 @@ class Stats:
                 "recv_mb": self.total_bytes_recv / 1024 / 1024,
                 "errors": self.errors
             }
+
+    async def reset_if_needed(self):
+        """每小时重置累积统计（保留活跃连接数）"""
+        async with self.lock:
+            current_time = time.time()
+            if current_time - self.last_reset_time > 3600:  # 1小时
+                print(f"\n🔄 重置统计信息 (总连接: {self.total_connections}, 错误: {self.errors})")
+                self.total_connections = 0
+                self.errors = 0
+                self.last_reset_time = current_time
 
 stats = Stats()
 
@@ -436,9 +447,9 @@ class DirectWebSocket:
             except:
                 pass
 
-# ==================== WebSocket 连接（使用直连实现）====================
+# ==================== WebSocket 连接（改进清理）====================
 class SecureWebSocket:
-    """安全的 WebSocket 连接（使用直连绕过代理）"""
+    """安全的 WebSocket 连接（改进资源清理）"""
 
     def __init__(self):
         self.ws: Optional[DirectWebSocket] = None
@@ -448,7 +459,7 @@ class SecureWebSocket:
         self.in_use = False
 
     async def connect(self) -> bool:
-        """建立 WebSocket 连接并完成握手（使用直连）"""
+        """建立 WebSocket 连接并完成握手"""
         try:
             # 使用底层直连实现
             self.ws = DirectWebSocket()
@@ -458,6 +469,7 @@ class SecureWebSocket:
                 config.server_port,
                 config.path
             ):
+                await self._cleanup()  # 连接失败立即清理
                 return False
 
             # 密钥交换
@@ -470,6 +482,7 @@ class SecureWebSocket:
             )
 
             if len(server_pub) != 32:
+                await self._cleanup()
                 raise Exception("服务器公钥长度错误")
 
             # 密钥派生
@@ -492,6 +505,7 @@ class SecureWebSocket:
 
             expected = hmac.new(self.recv_key, b"ok", digestmod='sha256').digest()
             if not hmac.compare_digest(auth_response, expected):
+                await self._cleanup()
                 raise Exception("认证失败")
 
             self.closed = False
@@ -499,9 +513,21 @@ class SecureWebSocket:
 
         except Exception as e:
             print(f"⚠️  连接失败: {e}")
-            if self.ws:
-                await self.ws.close()
+            await self._cleanup()  # 确保清理
             return False
+
+    async def _cleanup(self):
+        """内部清理方法"""
+        if self.ws:
+            try:
+                await self.ws.close()
+            except:
+                pass
+            self.ws = None
+
+        # 清空密钥
+        self.send_key = None
+        self.recv_key = None
 
     async def send_connect(self, target: str) -> bool:
         """发送 CONNECT 命令"""
@@ -542,14 +568,11 @@ class SecureWebSocket:
 
     async def close(self):
         """关闭连接"""
-        if not self.closed and self.ws:
+        if not self.closed:
             self.closed = True
-            try:
-                await self.ws.close()
-            except:
-                pass
+            await self._cleanup()
 
-# ==================== 连接处理 ====================
+# ==================== 连接处理（改进错误处理）====================
 class ProxyConnection:
     """单个代理连接"""
 
@@ -563,18 +586,26 @@ class ProxyConnection:
 
     async def setup(self, target: str) -> bool:
         """建立到服务器的连接"""
-        # 创建新的 WebSocket 连接
-        self.ws = SecureWebSocket()
-
         # 尝试连接（带重试）
         for attempt in range(config.max_reconnect_attempts):
-            if await self.ws.connect():
-                # 发送 CONNECT 命令
-                if await self.ws.send_connect(target):
-                    return True
+            try:
+                # 创建新的 WebSocket 连接
+                self.ws = SecureWebSocket()
 
-                # CONNECT 失败，关闭并重试
-                await self.ws.close()
+                if await self.ws.connect():
+                    # 发送 CONNECT 命令
+                    if await self.ws.send_connect(target):
+                        return True
+
+                    # CONNECT 失败，关闭并重试
+                    await self.ws.close()
+                    self.ws = None  # 清空引用
+
+            except Exception as e:
+                print(f"⚠️  连接尝试 {attempt + 1} 失败: {e}")
+                if self.ws:
+                    await self.ws.close()
+                    self.ws = None
 
             if attempt < config.max_reconnect_attempts - 1:
                 await asyncio.sleep(config.reconnect_delay)
@@ -602,20 +633,38 @@ class ProxyConnection:
             pass
 
     async def forward_remote_to_local(self):
-        """转发：远程 -> 本地"""
+        """远程 -> 本地 (带预读取)"""
         try:
+            prefetch_queue = deque(maxlen=5)  # 预读取5个数据块
+
+            async def prefetch():
+                """预读取协程"""
+                while not self.closed:
+                    try:
+                        data = await self.ws.recv()
+                        if data:
+                            prefetch_queue.append(data)
+                    except:
+                        break
+
+            # 启动预读取任务
+            prefetch_task = asyncio.create_task(prefetch())
+
             while not self.closed:
-                # 接收远程数据
-                data = await self.ws.recv()
+                # 从预读取队列获取数据
+                if prefetch_queue:
+                    data = prefetch_queue.popleft()
+                else:
+                    data = await self.ws.recv()
 
                 if not data:
                     break
 
-                # 写入本地
                 self.writer.write(data)
                 await self.writer.drain()
-
                 self.bytes_recv += len(data)
+
+            prefetch_task.cancel()
 
         except asyncio.CancelledError:
             raise
@@ -623,7 +672,7 @@ class ProxyConnection:
             pass
 
     async def cleanup(self):
-        """清理资源"""
+        """清理资源（改进版）"""
         if self.closed:
             return
 
@@ -635,6 +684,7 @@ class ProxyConnection:
         # 关闭 WebSocket
         if self.ws:
             await self.ws.close()
+            self.ws = None  # 清空引用
 
         # 关闭本地连接
         if not self.writer.is_closing():
@@ -791,15 +841,18 @@ async def handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         await conn.cleanup()
         await stats.connection_end()
 
-# ==================== 监控 ====================
+# ==================== 监控（改进版）====================
 async def stats_monitor():
-    """定期输出统计信息"""
+    """定期输出统计信息并重置"""
     last_time = time.time()
     last_sent = 0
     last_recv = 0
 
     while True:
         await asyncio.sleep(10)
+
+        # 检查是否需要重置
+        await stats.reset_if_needed()
 
         current_stats = await stats.get_stats()
         current_time = time.time()
@@ -836,7 +889,7 @@ async def start_servers():
     )
 
     print("=" * 70)
-    print("🚀 SecureProxy Client v2.2")
+    print("🚀 SecureProxy Client v2.3 - 资源清理优化版")
     print("=" * 70)
     print(f"✅ SOCKS5: 127.0.0.1:{config.socks_port}")
     print(f"✅ HTTP: 127.0.0.1:{config.http_port}")
@@ -848,7 +901,8 @@ async def start_servers():
     print(f"   • WebSocket 心跳: {config.ws_ping_interval}秒")
     print(f"\n💡 核心改进:")
     print(f"   • 固定缓冲区，零动态分配")
-    print(f"   • 自动重连机制")
+    print(f"   • 连接失败立即清理资源")
+    print(f"   • 统计信息定期重置")
     print(f"   • 简化错误处理")
     print(f"   • ✨ 底层 TCP 直连（彻底绕过代理检测）")
     print(f"   • ✨ 手动实现 WebSocket 协议（不依赖 websockets 库）")
@@ -874,7 +928,7 @@ if __name__ == "__main__":
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    print("\n🔧 SecureProxy Client v2.2 启动中...")
+    print("\n🔧 SecureProxy Client v2.3 启动中...")
     print("=" * 70)
 
     try:
