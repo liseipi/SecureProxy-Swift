@@ -1,6 +1,9 @@
 // ViewModels/ProxyManager.swift
 import Foundation
 import Combine
+import AppKit
+import UniformTypeIdentifiers
+import UserNotifications
 
 class ProxyManager: ObservableObject {
     @Published var configs: [ProxyConfig] = []
@@ -33,9 +36,21 @@ class ProxyManager: ObservableObject {
         
         self.pythonPath = findPython()
         
+        // 请求通知权限
+        requestNotificationPermission()
+        
         copyPythonScripts()
         loadConfigs()
         startTrafficMonitor()
+    }
+    
+    private func requestNotificationPermission() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                print("通知权限请求失败: \(error)")
+            }
+        }
     }
     
     private func findPython() -> String {
@@ -249,7 +264,6 @@ class ProxyManager: ObservableObject {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: configDict, options: []),
               let configJson = String(data: jsonData, encoding: .utf8) else {
             addLog("❌ 配置序列化失败")
-            // 🔥 错误只记录日志，不改变UI状态
             status = .disconnected
             return
         }
@@ -315,7 +329,6 @@ class ProxyManager: ObservableObject {
             let data = handle.availableData
             if let output = String(data: data, encoding: .utf8), !output.isEmpty {
                 DispatchQueue.main.async {
-                    // 🔥 错误只记录到日志，不影响UI状态
                     self?.addLog("❌ 错误: \(output)")
                 }
             }
@@ -329,7 +342,6 @@ class ProxyManager: ObservableObject {
             addLog("📡 SOCKS5: 127.0.0.1:\(config.socksPort)")
             addLog("📡 HTTP: 127.0.0.1:\(config.httpPort)")
         } catch {
-            // 🔥 启动失败只记录日志，状态回到未连接
             addLog("❌ 启动失败: \(error.localizedDescription)")
             status = .disconnected
         }
@@ -435,17 +447,13 @@ class ProxyManager: ObservableObject {
     }
     
     private func parseOutput(_ output: String) {
-        // 🔥 所有输出都只记录到日志
         addLog(output)
         
-        // 🔥 只有明确的成功标志才改变状态为已连接
-        // 错误、失败等信息不改变UI状态
         if output.contains("隧道建立成功") ||
            output.contains("✅ SOCKS5") ||
            output.contains("✅ HTTP") {
             status = .connected
         }
-        // 🔥 移除错误状态的设置，让状态保持为 connecting 或已有状态
     }
     
     private func startTrafficMonitor() {
@@ -468,6 +476,173 @@ class ProxyManager: ObservableObject {
     func clearLogs() {
         logs.removeAll()
         addLog("日志已清除")
+    }
+    
+    // MARK: - 导入导出功能
+    
+    /// 导出单个配置到文件
+    func exportConfig(_ config: ProxyConfig) {
+        let savePanel = NSSavePanel()
+        savePanel.title = "导出配置"
+        savePanel.nameFieldStringValue = "\(config.name).json"
+        savePanel.allowedContentTypes = [UTType.json]
+        savePanel.canCreateDirectories = true
+        
+        savePanel.begin { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(config)
+                try data.write(to: url)
+                
+                DispatchQueue.main.async {
+                    self.addLog("✅ 配置已导出: \(config.name)")
+                    self.showNotification(title: "导出成功", message: "配置已保存到 \(url.lastPathComponent)")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.addLog("❌ 导出失败: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    /// 导出所有配置到文件
+    func exportAllConfigs() {
+        guard !configs.isEmpty else {
+            addLog("⚠️ 没有可导出的配置")
+            return
+        }
+        
+        let savePanel = NSSavePanel()
+        savePanel.title = "导出所有配置"
+        savePanel.nameFieldStringValue = "SecureProxy-Configs.json"
+        savePanel.allowedContentTypes = [UTType.json]
+        savePanel.canCreateDirectories = true
+        
+        savePanel.begin { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(self.configs)
+                try data.write(to: url)
+                
+                DispatchQueue.main.async {
+                    self.addLog("✅ 已导出 \(self.configs.count) 个配置")
+                    self.showNotification(title: "导出成功", message: "已导出 \(self.configs.count) 个配置")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.addLog("❌ 导出失败: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    /// 导入配置文件
+    func importConfig() {
+        let openPanel = NSOpenPanel()
+        openPanel.title = "导入配置"
+        openPanel.allowedContentTypes = [UTType.json]
+        openPanel.allowsMultipleSelection = false
+        openPanel.canChooseDirectories = false
+        
+        openPanel.begin { response in
+            guard response == .OK, let url = openPanel.url else { return }
+            
+            do {
+                let data = try Data(contentsOf: url)
+                let decoder = JSONDecoder()
+                
+                // 尝试解析为单个配置
+                if let config = try? decoder.decode(ProxyConfig.self, from: data) {
+                    self.importSingleConfig(config)
+                }
+                // 尝试解析为配置数组
+                else if let configsArray = try? decoder.decode([ProxyConfig].self, from: data) {
+                    self.importMultipleConfigs(configsArray)
+                }
+                else {
+                    throw NSError(domain: "ImportError", code: 1,
+                                userInfo: [NSLocalizedDescriptionKey: "无效的配置文件格式"])
+                }
+                
+            } catch {
+                DispatchQueue.main.async {
+                    self.addLog("❌ 导入失败: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    // MARK: - 私有辅助方法
+    
+    private func importSingleConfig(_ config: ProxyConfig) {
+        var newConfig = config
+        
+        // 检查名称冲突
+        if configs.contains(where: { $0.name == config.name }) {
+            newConfig.name = "\(config.name) (导入)"
+        }
+        
+        // 生成新的 ID
+        newConfig.id = UUID()
+        
+        // 保存配置
+        saveConfig(newConfig)
+        
+        DispatchQueue.main.async {
+            self.addLog("✅ 成功导入配置: \(newConfig.name)")
+            self.showNotification(title: "导入成功", message: "配置 \(newConfig.name) 已导入")
+        }
+    }
+    
+    private func importMultipleConfigs(_ configsArray: [ProxyConfig]) {
+        var importedCount = 0
+        
+        for config in configsArray {
+            var newConfig = config
+            
+            // 检查名称冲突
+            if configs.contains(where: { $0.name == config.name }) {
+                newConfig.name = "\(config.name) (导入)"
+            }
+            
+            // 生成新的 ID
+            newConfig.id = UUID()
+            
+            // 保存配置
+            saveConfig(newConfig)
+            importedCount += 1
+        }
+        
+        DispatchQueue.main.async {
+            self.addLog("✅ 成功导入 \(importedCount) 个配置")
+            self.showNotification(title: "导入成功", message: "已导入 \(importedCount) 个配置")
+        }
+    }
+    
+    private func showNotification(title: String, message: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message
+        content.sound = .default
+        
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("通知发送失败: \(error)")
+            }
+        }
     }
     
     deinit {

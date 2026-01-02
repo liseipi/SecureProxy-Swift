@@ -1,10 +1,11 @@
+// Views/ContentView.swift
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var manager: ProxyManager
     @State private var showingConfigEditor = false
     @State private var editingConfig: ProxyConfig? = nil
-    @Environment(\.openWindow) var openWindow  // ✅ 新增
+    @Environment(\.openWindow) var openWindow
     
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,8 @@ struct ContentView: View {
             if manager.configs.isEmpty {
                 EmptyStateView(onAddConfig: {
                     createNewConfig()
+                }, onImport: {
+                    manager.importConfig()
                 })
             } else {
                 List {
@@ -31,7 +34,8 @@ struct ContentView: View {
                                     showingConfigEditor = true
                                 }
                             },
-                            onDelete: { manager.deleteConfig(config) }
+                            onDelete: { manager.deleteConfig(config) },
+                            onExport: { manager.exportConfig(config) }
                         )
                     }
                 }
@@ -41,6 +45,20 @@ struct ContentView: View {
             HStack {
                 Button(action: createNewConfig) {
                     Label("添加配置", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                
+                Menu {
+                    Button(action: { manager.importConfig() }) {
+                        Label("导入配置", systemImage: "square.and.arrow.down")
+                    }
+                    
+                    Button(action: { manager.exportAllConfigs() }) {
+                        Label("导出所有配置", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(manager.configs.isEmpty)
+                } label: {
+                    Label("导入/导出", systemImage: "arrow.up.arrow.down.circle")
                 }
                 .buttonStyle(.bordered)
                 
@@ -65,7 +83,6 @@ struct ContentView: View {
                 }
             )
         }
-        // ❌ 删除：不再需要日志的 sheet
         .frame(minWidth: 600, minHeight: 500)
     }
     
@@ -85,6 +102,7 @@ struct ContentView: View {
 
 struct EmptyStateView: View {
     let onAddConfig: () -> Void
+    let onImport: () -> Void
     
     var body: some View {
         VStack(spacing: 20) {
@@ -96,15 +114,29 @@ struct EmptyStateView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
             
-            Text("点击下方按钮添加第一个代理配置")
+            Text("点击下方按钮添加或导入配置")
                 .foregroundColor(.secondary)
             
-            Button(action: onAddConfig) {
-                Label("添加配置", systemImage: "plus.circle.fill")
-                    .font(.headline)
+            HStack(spacing: 12) {
+                Button(action: onAddConfig) {
+                    Label("添加配置", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Button(action: onImport) {
+                    Label("导入配置", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+// 预览
+#Preview {
+    ContentView()
+        .environmentObject(ProxyManager())
 }

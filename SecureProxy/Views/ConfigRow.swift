@@ -1,3 +1,4 @@
+// Views/ConfigRow.swift
 import SwiftUI
 
 struct ConfigRow: View {
@@ -6,6 +7,7 @@ struct ConfigRow: View {
     let onSelect: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onExport: () -> Void
     
     @State private var showingDeleteAlert = false
     
@@ -38,6 +40,14 @@ struct ConfigRow: View {
             Spacer()
             
             HStack(spacing: 12) {
+                Button(action: onExport) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.title3)
+                        .foregroundColor(.green)
+                }
+                .buttonStyle(BorderlessButtonStyle())
+                .help("导出配置")
+                
                 Button(action: onEdit) {
                     Image(systemName: "pencil.circle.fill")
                         .font(.title3)
