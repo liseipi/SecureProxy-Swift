@@ -2,7 +2,7 @@ import SwiftUI
 
 struct StatusBar: View {
     @ObservedObject var manager: ProxyManager
-    @Binding var showingLogs: Bool
+    let openWindow: (String) -> Void  // ✅ 改为参数传递
     
     var body: some View {
         VStack(spacing: 16) {
@@ -38,7 +38,10 @@ struct StatusBar: View {
                     .toggleStyle(SwitchToggleStyle())
                     .scaleEffect(1.2)
                     
-                    Button(action: { showingLogs = true }) {
+                    // ✅ 修改：打开独立窗口
+                    Button(action: {
+                        openWindow("logs")
+                    }) {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
                             Text("查看日志")
@@ -84,6 +87,7 @@ struct StatusBar: View {
     }
 }
 
+// TrafficLabel 和 PortInfoView 保持不变...
 struct TrafficLabel: View {
     let icon: String
     let title: String
@@ -103,7 +107,7 @@ struct TrafficLabel: View {
             Text(formatSpeed(value))
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
-                .foregroundColor(.primary)  // 确保速度数字清晰
+                .foregroundColor(.primary)
         }
     }
     

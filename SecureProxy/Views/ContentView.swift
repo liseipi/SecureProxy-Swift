@@ -4,11 +4,13 @@ struct ContentView: View {
     @EnvironmentObject var manager: ProxyManager
     @State private var showingConfigEditor = false
     @State private var editingConfig: ProxyConfig? = nil
-    @State private var showingLogs = false
+    @Environment(\.openWindow) var openWindow  // ✅ 新增
     
     var body: some View {
         VStack(spacing: 0) {
-            StatusBar(manager: manager, showingLogs: $showingLogs)
+            StatusBar(manager: manager, openWindow: { id in
+                openWindow(id: id)
+            })
             
             Divider()
             
@@ -36,7 +38,6 @@ struct ContentView: View {
                 .listStyle(InsetListStyle())
             }
             
-            // 底部工具栏
             HStack {
                 Button(action: createNewConfig) {
                     Label("添加配置", systemImage: "plus.circle.fill")
@@ -64,11 +65,7 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingLogs) {
-            LogsView(logs: manager.logs, onClear: {
-                manager.clearLogs()
-            })
-        }
+        // ❌ 删除：不再需要日志的 sheet
         .frame(minWidth: 600, minHeight: 500)
     }
     
@@ -82,7 +79,6 @@ struct ContentView: View {
             httpPort: 1081,
             preSharedKey: ""
         )
-        // 直接设置 editingConfig，触发 sheet(item:) 自动显示
         editingConfig = newConfig
     }
 }

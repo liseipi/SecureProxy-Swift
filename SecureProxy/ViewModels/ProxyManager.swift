@@ -10,6 +10,7 @@ class ProxyManager: ObservableObject {
     @Published var trafficUp: Double = 0
     @Published var trafficDown: Double = 0
     @Published var logs: [String] = []
+    @Published var showingLogs = false
     
     private var process: Process?
     private var configDirectory: URL

@@ -1,5 +1,17 @@
 import SwiftUI
 
+// ✅ 新增：日志窗口包装器
+struct LogsWindowView: View {
+    @EnvironmentObject var manager: ProxyManager
+    
+    var body: some View {
+        LogsView(logs: manager.logs, onClear: {
+            manager.clearLogs()
+        })
+    }
+}
+
+// 原有的 LogsView 保持不变
 struct LogsView: View {
     let logs: [String]
     let onClear: () -> Void
@@ -8,7 +20,6 @@ struct LogsView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // 标题栏
             HStack {
                 Text("运行日志")
                     .font(.headline)
@@ -41,7 +52,6 @@ struct LogsView: View {
             
             Divider()
             
-            // 日志内容
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
@@ -81,7 +91,6 @@ struct LogsView: View {
                 }
             }
             
-            // 底部状态栏
             HStack {
                 Text("共 \(logs.count) 条")
                     .font(.caption2)
@@ -97,7 +106,6 @@ struct LogsView: View {
             .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 700, minHeight: 450)
     }
 }
 
@@ -107,13 +115,11 @@ struct LogRow: View {
     
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            // 行号
             Text("\(index + 1)")
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.secondary)
                 .frame(width: 30, alignment: .trailing)
             
-            // 日志内容
             Text(log)
                 .font(.system(size: 11, design: .monospaced))
                 .textSelection(.enabled)

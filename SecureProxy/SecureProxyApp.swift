@@ -6,7 +6,7 @@ struct SecureProxyApp: App {
     @StateObject private var manager = ProxyManager()
     
     var body: some Scene {
-        // 主窗口 - 使用 Window 而不是 WindowGroup
+        // 主窗口
         Window("SecureProxy", id: "main") {
             ContentView()
                 .environmentObject(manager)
@@ -31,6 +31,15 @@ struct SecureProxyApp: App {
             }
         }
         
+        // ✅ 新增：独立的日志窗口
+        Window("运行日志", id: "logs") {
+            LogsWindowView()
+                .environmentObject(manager)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
+        .defaultSize(width: 700, height: 450)
+        
         // 菜单栏图标
         MenuBarExtra {
             MenuBarView(appDelegate: appDelegate)
@@ -43,20 +52,16 @@ struct SecureProxyApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 隐藏 Dock 图标（只显示菜单栏图标）
         NSApp.setActivationPolicy(.accessory)
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // 关闭窗口不退出应用
         return false
     }
     
     func showMainWindow() {
-        // 🔥 关键修复：激活应用程序
         NSApp.activate(ignoringOtherApps: true)
         
-        // 查找主窗口（排除菜单栏弹出窗口）
         let mainWindow = NSApp.windows.first { window in
             window.contentViewController != nil &&
             !window.styleMask.contains(.nonactivatingPanel) &&
@@ -64,19 +69,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         if let window = mainWindow {
-            // 如果窗口已存在，直接显示
             window.makeKeyAndOrderFront(nil)
-            
-            // 临时设为浮动窗口以确保显示在最前面
             window.level = .floating
             window.orderFrontRegardless()
             
-            // 0.5秒后恢复正常层级
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 window.level = .normal
             }
         } else {
-            // 如果窗口不存在（首次打开），等待创建后再显示
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if let window = NSApp.windows.first(where: {
                     $0.contentViewController != nil &&
@@ -96,14 +96,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// 通知名称
 extension Notification.Name {
     static let openMainWindow = Notification.Name("openMainWindow")
 }
 
-// ===================================
-// 菜单栏标签
-// ===================================
 struct MenuBarLabel: View {
     let isRunning: Bool
     let status: ProxyStatus
@@ -112,7 +108,6 @@ struct MenuBarLabel: View {
         HStack(spacing: 4) {
             Image(systemName: iconName)
                 .foregroundColor(iconColor)
-            // Text("代理")  // 可选：显示文字
         }
     }
     
@@ -136,9 +131,6 @@ struct MenuBarLabel: View {
     }
 }
 
-// ===================================
-// 自定义 LabelStyle - 强制水平布局
-// ===================================
 struct HorizontalLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
@@ -148,18 +140,13 @@ struct HorizontalLabelStyle: LabelStyle {
     }
 }
 
-// ===================================
-// 菜单栏视图 - 使用自定义 LabelStyle
-// ===================================
 struct MenuBarView: View {
     let appDelegate: AppDelegate
     @EnvironmentObject var manager: ProxyManager
-    @State private var showingLogs = false
     @Environment(\.openWindow) var openWindow
     
     var body: some View {
         VStack(spacing: 0) {
-            // 状态信息
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: manager.status.icon)
@@ -181,7 +168,6 @@ struct MenuBarView: View {
             
             Divider()
             
-            // 开关按钮
             Button(action: {
                 if manager.isRunning {
                     manager.stop()
@@ -199,24 +185,20 @@ struct MenuBarView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             
-            // 流量信息
             if manager.isRunning, let config = manager.activeConfig {
                 Divider()
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    // 上传
                     Label(String(format: "%.1f KB/s", manager.trafficUp),
                           systemImage: "arrow.up.circle.fill")
                         .labelStyle(HorizontalLabelStyle())
                         .foregroundColor(.blue)
                     
-                    // 下载
                     Label(String(format: "%.1f KB/s", manager.trafficDown),
                           systemImage: "arrow.down.circle.fill")
                         .labelStyle(HorizontalLabelStyle())
                         .foregroundColor(.green)
                     
-                    // 端口信息
                     Text("SOCKS5: \(config.socksPort) | HTTP: \(config.httpPort)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -229,7 +211,6 @@ struct MenuBarView: View {
             
             Divider()
             
-            // 打开主窗口按钮
             Button(action: {
                 appDelegate.showMainWindow()
                 openWindow(id: "main")
@@ -242,9 +223,9 @@ struct MenuBarView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             
-            // 查看日志按钮
+            // ✅ 修改：打开独立的日志窗口
             Button(action: {
-                showingLogs = true
+                openWindow(id: "logs")
             }) {
                 Label("查看日志", systemImage: "doc.text")
                     .labelStyle(HorizontalLabelStyle())
@@ -256,7 +237,6 @@ struct MenuBarView: View {
             
             Divider()
             
-            // 退出按钮
             Button(action: {
                 NSApplication.shared.terminate(nil)
             }) {
@@ -270,10 +250,5 @@ struct MenuBarView: View {
             .padding(.vertical, 4)
         }
         .frame(width: 240)
-        .sheet(isPresented: $showingLogs) {
-            LogsView(logs: manager.logs, onClear: {
-                manager.clearLogs()
-            })
-        }
     }
 }
