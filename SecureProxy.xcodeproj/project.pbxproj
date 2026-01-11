@@ -6,14 +6,63 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		88F62C9D2F1385B400D8A993 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 88F62C9C2F1385B400D8A993 /* NetworkExtension.framework */; };
+		88F62CA52F1385B400D8A993 /* SecureProxyTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 88F62C9A2F1385B400D8A993 /* SecureProxyTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		88F62CA32F1385B400D8A993 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 887F54162ED83D7400DC92AB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 88F62C992F1385B400D8A993;
+			remoteInfo = SecureProxyTunnel;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		88F62CAA2F1385B400D8A993 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				88F62CA52F1385B400D8A993 /* SecureProxyTunnel.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		887F541E2ED83D7400DC92AB /* SecureProxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SecureProxy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		88F62C9A2F1385B400D8A993 /* SecureProxyTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SecureProxyTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		88F62C9C2F1385B400D8A993 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		88F62CA62F1385B400D8A993 /* Exceptions for "SecureProxyTunnel" folder in "SecureProxyTunnel" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 88F62C992F1385B400D8A993 /* SecureProxyTunnel */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		887F54202ED83D7400DC92AB /* SecureProxy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SecureProxy;
+			sourceTree = "<group>";
+		};
+		88F62C9E2F1385B400D8A993 /* SecureProxyTunnel */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				88F62CA62F1385B400D8A993 /* Exceptions for "SecureProxyTunnel" folder in "SecureProxyTunnel" target */,
+			);
+			path = SecureProxyTunnel;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +75,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		88F62C972F1385B400D8A993 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88F62C9D2F1385B400D8A993 /* NetworkExtension.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +90,8 @@
 			isa = PBXGroup;
 			children = (
 				887F54202ED83D7400DC92AB /* SecureProxy */,
+				88F62C9E2F1385B400D8A993 /* SecureProxyTunnel */,
+				88F62C9B2F1385B400D8A993 /* Frameworks */,
 				887F541F2ED83D7400DC92AB /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +100,17 @@
 			isa = PBXGroup;
 			children = (
 				887F541E2ED83D7400DC92AB /* SecureProxy.app */,
+				88F62C9A2F1385B400D8A993 /* SecureProxyTunnel.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		88F62C9B2F1385B400D8A993 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				88F62C9C2F1385B400D8A993 /* NetworkExtension.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +123,12 @@
 				887F541A2ED83D7400DC92AB /* Sources */,
 				887F541B2ED83D7400DC92AB /* Frameworks */,
 				887F541C2ED83D7400DC92AB /* Resources */,
+				88F62CAA2F1385B400D8A993 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				88F62CA42F1385B400D8A993 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				887F54202ED83D7400DC92AB /* SecureProxy */,
@@ -69,6 +139,28 @@
 			productName = SecureProxy;
 			productReference = 887F541E2ED83D7400DC92AB /* SecureProxy.app */;
 			productType = "com.apple.product-type.application";
+		};
+		88F62C992F1385B400D8A993 /* SecureProxyTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88F62CA72F1385B400D8A993 /* Build configuration list for PBXNativeTarget "SecureProxyTunnel" */;
+			buildPhases = (
+				88F62C962F1385B400D8A993 /* Sources */,
+				88F62C972F1385B400D8A993 /* Frameworks */,
+				88F62C982F1385B400D8A993 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				88F62C9E2F1385B400D8A993 /* SecureProxyTunnel */,
+			);
+			name = SecureProxyTunnel;
+			packageProductDependencies = (
+			);
+			productName = SecureProxyTunnel;
+			productReference = 88F62C9A2F1385B400D8A993 /* SecureProxyTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +173,9 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					887F541D2ED83D7400DC92AB = {
+						CreatedOnToolsVersion = 26.1;
+					};
+					88F62C992F1385B400D8A993 = {
 						CreatedOnToolsVersion = 26.1;
 					};
 				};
@@ -100,12 +195,20 @@
 			projectRoot = "";
 			targets = (
 				887F541D2ED83D7400DC92AB /* SecureProxy */,
+				88F62C992F1385B400D8A993 /* SecureProxyTunnel */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		887F541C2ED83D7400DC92AB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		88F62C982F1385B400D8A993 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +225,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		88F62C962F1385B400D8A993 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		88F62CA42F1385B400D8A993 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 88F62C992F1385B400D8A993 /* SecureProxyTunnel */;
+			targetProxy = 88F62CA32F1385B400D8A993 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		887F54272ED83D7600DC92AB /* Debug */ = {
@@ -244,6 +362,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SecureProxy/SecureProxy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
@@ -285,6 +404,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SecureProxy/SecureProxy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
@@ -321,6 +441,69 @@
 			};
 			name = Release;
 		};
+		88F62CA82F1385B400D8A993 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SecureProxyTunnel/SecureProxyTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SecureProxyTunnel/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SecureProxyTunnel;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy.SecureProxyTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Debug;
+		};
+		88F62CA92F1385B400D8A993 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SecureProxyTunnel/SecureProxyTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SecureProxyTunnel/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SecureProxyTunnel;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy.SecureProxyTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				VALIDATE_PRODUCT = YES;
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -338,6 +521,15 @@
 			buildConfigurations = (
 				887F542A2ED83D7600DC92AB /* Debug */,
 				887F542B2ED83D7600DC92AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		88F62CA72F1385B400D8A993 /* Build configuration list for PBXNativeTarget "SecureProxyTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88F62CA82F1385B400D8A993 /* Debug */,
+				88F62CA92F1385B400D8A993 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

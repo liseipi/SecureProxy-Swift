@@ -1,4 +1,4 @@
-// ViewModels/ProxyManager.swift
+// ViewModels/ProxyManager.swift (更新版 - 添加系统代理和 TUN 支持)
 import Foundation
 import Combine
 import AppKit
@@ -15,11 +15,18 @@ class ProxyManager: ObservableObject {
     @Published var logs: [String] = []
     @Published var showingLogs = false
     
+    // ✅ 新增：系统代理和 TUN 模式开关
+    @Published var systemProxyEnabled = false
+    @Published var tunModeEnabled = false
+    
     private var process: Process?
     private var configDirectory: URL
     private var pythonDirectory: URL
     private var pythonPath: String
     private var timer: Timer?
+    
+    // ✅ 新增：TUN 管理器
+    private var tunManager: TUNManager?
     
     init() {
         let fm = FileManager.default
@@ -36,12 +43,95 @@ class ProxyManager: ObservableObject {
         
         self.pythonPath = findPython()
         
-        // 请求通知权限
-        requestNotificationPermission()
+        // 初始化 TUN 管理器
+        self.tunManager = TUNManager()
         
+        requestNotificationPermission()
         copyPythonScripts()
         loadConfigs()
         startTrafficMonitor()
+        
+        // 检查系统代理状态
+        checkSystemProxyStatus()
+    }
+    
+    // ✅ 新增：检查系统代理状态
+    private func checkSystemProxyStatus() {
+        let status = SystemProxyManager.getSystemProxyStatus()
+        systemProxyEnabled = status.enabled
+    }
+    
+    // ✅ 新增：切换系统代理
+    func toggleSystemProxy() {
+        guard let config = activeConfig else {
+            addLog("❌ 未选择配置")
+            return
+        }
+        
+        if systemProxyEnabled {
+            // 关闭系统代理
+            if SystemProxyManager.clearSystemProxy() {
+                systemProxyEnabled = false
+                addLog("✅ 系统代理已关闭")
+                showNotification(title: "系统代理", message: "已关闭")
+            } else {
+                addLog("❌ 关闭系统代理失败")
+            }
+        } else {
+            // 开启系统代理
+            if SystemProxyManager.setSystemProxy(socks5Port: config.socksPort, httpPort: config.httpPort) {
+                systemProxyEnabled = true
+                addLog("✅ 系统代理已启用")
+                addLog("   SOCKS5: 127.0.0.1:\(config.socksPort)")
+                addLog("   HTTP/HTTPS: 127.0.0.1:\(config.httpPort)")
+                showNotification(title: "系统代理", message: "已启用")
+            } else {
+                addLog("❌ 启用系统代理失败，可能需要管理员权限")
+                showNotification(title: "系统代理", message: "启用失败，请检查权限")
+            }
+        }
+    }
+    
+    // ✅ 新增：切换 TUN 模式
+    func toggleTUNMode() {
+        guard let config = activeConfig else {
+            addLog("❌ 未选择配置")
+            return
+        }
+        
+        guard let tunManager = tunManager else {
+            addLog("❌ TUN 管理器未初始化")
+            return
+        }
+        
+        if tunModeEnabled {
+            // 关闭 TUN
+            tunManager.disableTUN()
+            tunModeEnabled = false
+            addLog("✅ TUN 模式已关闭")
+            showNotification(title: "TUN 模式", message: "已关闭")
+        } else {
+            // 开启 TUN
+            if !isRunning {
+                addLog("⚠️ 请先启动代理服务")
+                showNotification(title: "TUN 模式", message: "请先启动代理服务")
+                return
+            }
+            
+            tunManager.enableTUN(socksPort: config.socksPort)
+            
+            // 延迟检查状态
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                if tunManager.isEnabled {
+                    self?.tunModeEnabled = true
+                    self?.addLog("✅ TUN 模式已启用")
+                    self?.showNotification(title: "TUN 模式", message: "已启用")
+                } else {
+                    self?.addLog("❌ TUN 模式启用失败: \(tunManager.statusMessage)")
+                    self?.showNotification(title: "TUN 模式", message: "启用失败")
+                }
+            }
+        }
     }
     
     private func requestNotificationPermission() {
@@ -250,7 +340,6 @@ class ProxyManager: ObservableObject {
     }
     
     private func startProxyProcess(config: ProxyConfig) {
-        // 通过环境变量传递配置 JSON
         let configDict: [String: Any] = [
             "name": config.name,
             "sni_host": config.sniHost,
@@ -276,8 +365,6 @@ class ProxyManager: ObservableObject {
         process?.currentDirectoryURL = pythonDirectory
         
         var environment = ProcessInfo.processInfo.environment
-        
-        // 设置配置到环境变量
         environment["SECURE_PROXY_CONFIG"] = configJson
         
         if let home = environment["HOME"] {
@@ -349,6 +436,19 @@ class ProxyManager: ObservableObject {
     
     func stop() {
         addLog("🛑 停止代理...")
+        
+        // ✅ 停止时自动关闭系统代理和 TUN
+        if systemProxyEnabled {
+            _ = SystemProxyManager.clearSystemProxy()
+            systemProxyEnabled = false
+            addLog("✅ 已自动关闭系统代理")
+        }
+        
+        if tunModeEnabled {
+            tunManager?.disableTUN()
+            tunModeEnabled = false
+            addLog("✅ 已自动关闭 TUN 模式")
+        }
         
         if let process = process {
             process.terminate()
@@ -429,6 +529,17 @@ class ProxyManager: ObservableObject {
     func forceCleanup() {
         addLog("🧹 开始强制清理...")
         
+        // 清理系统代理和 TUN
+        if systemProxyEnabled {
+            _ = SystemProxyManager.clearSystemProxy()
+            systemProxyEnabled = false
+        }
+        
+        if tunModeEnabled {
+            tunManager?.disableTUN()
+            tunModeEnabled = false
+        }
+        
         killAllClientProcesses()
         
         if let config = activeConfig {
@@ -478,9 +589,6 @@ class ProxyManager: ObservableObject {
         addLog("日志已清除")
     }
     
-    // MARK: - 导入导出功能
-    
-    /// 导出单个配置到文件
     func exportConfig(_ config: ProxyConfig) {
         let savePanel = NSSavePanel()
         savePanel.title = "导出配置"
@@ -509,7 +617,6 @@ class ProxyManager: ObservableObject {
         }
     }
     
-    /// 导出所有配置到文件
     func exportAllConfigs() {
         guard !configs.isEmpty else {
             addLog("⚠️ 没有可导出的配置")
@@ -543,7 +650,6 @@ class ProxyManager: ObservableObject {
         }
     }
     
-    /// 导入配置文件
     func importConfig() {
         let openPanel = NSOpenPanel()
         openPanel.title = "导入配置"
@@ -558,11 +664,9 @@ class ProxyManager: ObservableObject {
                 let data = try Data(contentsOf: url)
                 let decoder = JSONDecoder()
                 
-                // 尝试解析为单个配置
                 if let config = try? decoder.decode(ProxyConfig.self, from: data) {
                     self.importSingleConfig(config)
                 }
-                // 尝试解析为配置数组
                 else if let configsArray = try? decoder.decode([ProxyConfig].self, from: data) {
                     self.importMultipleConfigs(configsArray)
                 }
@@ -579,20 +683,14 @@ class ProxyManager: ObservableObject {
         }
     }
     
-    // MARK: - 私有辅助方法
-    
     private func importSingleConfig(_ config: ProxyConfig) {
         var newConfig = config
         
-        // 检查名称冲突
         if configs.contains(where: { $0.name == config.name }) {
             newConfig.name = "\(config.name) (导入)"
         }
         
-        // 生成新的 ID
         newConfig.id = UUID()
-        
-        // 保存配置
         saveConfig(newConfig)
         
         DispatchQueue.main.async {
@@ -607,15 +705,11 @@ class ProxyManager: ObservableObject {
         for config in configsArray {
             var newConfig = config
             
-            // 检查名称冲突
             if configs.contains(where: { $0.name == config.name }) {
                 newConfig.name = "\(config.name) (导入)"
             }
             
-            // 生成新的 ID
             newConfig.id = UUID()
-            
-            // 保存配置
             saveConfig(newConfig)
             importedCount += 1
         }
@@ -646,6 +740,14 @@ class ProxyManager: ObservableObject {
     }
     
     deinit {
+        // 清理时关闭系统代理和 TUN
+        if systemProxyEnabled {
+            _ = SystemProxyManager.clearSystemProxy()
+        }
+        if tunModeEnabled {
+            tunManager?.disableTUN()
+        }
+        
         killAllClientProcesses()
         if let config = activeConfig {
             releasePort(config.socksPort)

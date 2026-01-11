@@ -1,11 +1,13 @@
+// Views/StatusBar.swift (更新版 - 添加系统代理和 TUN 开关)
 import SwiftUI
 
 struct StatusBar: View {
     @ObservedObject var manager: ProxyManager
-    let openWindow: (String) -> Void  // ✅ 改为参数传递
+    let openWindow: (String) -> Void
     
     var body: some View {
         VStack(spacing: 16) {
+            // 第一行：基本信息和主开关
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(manager.activeConfig?.name ?? "未选择配置")
@@ -38,7 +40,6 @@ struct StatusBar: View {
                     .toggleStyle(SwitchToggleStyle())
                     .scaleEffect(1.2)
                     
-                    // ✅ 修改：打开独立窗口
                     Button(action: {
                         openWindow("logs")
                     }) {
@@ -52,7 +53,106 @@ struct StatusBar: View {
                 }
             }
             
+            // ✅ 新增：系统代理和 TUN 模式开关
             if manager.isRunning {
+                Divider()
+                
+                HStack(spacing: 20) {
+                    // 系统代理开关
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "network")
+                                .foregroundColor(manager.systemProxyEnabled ? .green : .gray)
+                                .font(.title3)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("全局代理")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                
+                                Text(manager.systemProxyEnabled ? "已启用" : "未启用")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: Binding(
+                                get: { manager.systemProxyEnabled },
+                                set: { _ in
+                                    manager.toggleSystemProxy()
+                                }
+                            ))
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        }
+                        
+                        if manager.systemProxyEnabled {
+                            Text("系统流量已通过代理")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(manager.systemProxyEnabled ? Color.green : Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    
+                    // TUN 模式开关
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "network.badge.shield.half.filled")
+                                .foregroundColor(manager.tunModeEnabled ? .blue : .gray)
+                                .font(.title3)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("TUN 模式")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                
+                                Text(manager.tunModeEnabled ? "已启用" : "未启用")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: Binding(
+                                get: { manager.tunModeEnabled },
+                                set: { _ in
+                                    manager.toggleTUNMode()
+                                }
+                            ))
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        }
+                        
+                        if manager.tunModeEnabled {
+                            Text("虚拟网卡已激活")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(manager.tunModeEnabled ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                }
+            }
+            
+            if manager.isRunning {
+                Divider()
+                
                 VStack(spacing: 12) {
                     HStack(spacing: 30) {
                         TrafficLabel(
@@ -87,7 +187,6 @@ struct StatusBar: View {
     }
 }
 
-// TrafficLabel 和 PortInfoView 保持不变...
 struct TrafficLabel: View {
     let icon: String
     let title: String
