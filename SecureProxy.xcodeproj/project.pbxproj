@@ -365,6 +365,7 @@
 				CODE_SIGN_ENTITLEMENTS = SecureProxy/SecureProxy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -383,7 +384,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.secureproxy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -407,6 +408,7 @@
 				CODE_SIGN_ENTITLEMENTS = SecureProxy/SecureProxy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -425,7 +427,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.secureproxy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -449,7 +451,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SecureProxyTunnel/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SecureProxyTunnel;
+				INFOPLIST_KEY_CFBundleDisplayName = "SecureProxy Tunnel";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -457,7 +459,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy.SecureProxyTunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = com.secureproxy.tunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = xros;
 				SKIP_INSTALL = YES;
@@ -480,7 +482,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SecureProxyTunnel/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = SecureProxyTunnel;
+				INFOPLIST_KEY_CFBundleDisplayName = "SecureProxy Tunnel";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -488,7 +490,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = musicses.SecureProxy.SecureProxyTunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = com.secureproxy.tunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = xros;
 				SKIP_INSTALL = YES;

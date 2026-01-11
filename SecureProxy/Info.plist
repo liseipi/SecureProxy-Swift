@@ -2,6 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSVPNServiceUsageDescription</key>
+	<string>SecureProxy 使用 VPN 技术创建虚拟网卡，实现透明代理</string>
+	<key>NEProviderClasses</key>
+	<dict>
+		<key>com.apple.networkextension.packet-tunnel</key>
+		<string>PacketTunnelProvider</string>
+		<key>NSStringLocalizedFormatKey</key>
+		<string></string>
+		<key>Variable</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>other</key>
+			<string></string>
+		</dict>
+	</dict>
 	<key>NSSystemExtensionUsageDescription</key>
 	<string>SecureProxy 需要系统扩展来提供 TUN 模式</string>
 	<key>com.apple.security.network.client</key>

@@ -2,9 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Network Extension 权限 -->
+    <key>com.apple.developer.networking.networkextension</key>
+    <array>
+        <string>packet-tunnel-provider</string>
+    </array>
+    
+    <!-- App Groups -->
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.musicses.SecureProxy</string>
+        <string>group.com.secureproxy.shared</string>
+    </array>
+    
+    <!-- Keychain 共享 -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.secureproxy</string>
     </array>
 </dict>
 </plist>
